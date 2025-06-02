@@ -1,28 +1,47 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { CommandHandler } from 'lib/cqrs/command/CommandHandler.decorator';
 import { CommandHandler as ICommandHandler } from 'lib/cqrs/command/Command.handler';
 import { EventBus } from 'lib/cqrs/event/Event.bus';
-import { TodoRepository } from 'src/todo/application/ports/Todo.repository';
 import { UpdateTodoCommand } from 'src/todo/application/command/impl/UpdateTodo.command';
-import { TodoUpdatedEvent } from 'src/todo/application/events/impl/TodoUpdated.event';
+import { Todo } from 'src/todo/domain/Todo';
+import { EventStore } from 'lib/event-sroucing/application/port/EventStore';
+import { TodoEventFactory } from 'src/todo/application/events/EventFactory';
 
 @Injectable()
 @CommandHandler(UpdateTodoCommand)
 export class UpdateTodoHandler implements ICommandHandler<UpdateTodoCommand> {
   constructor(
-    private readonly todoRepository: TodoRepository,
+    private readonly eventStore: EventStore,
     private readonly eventBus: EventBus,
   ) {}
 
   async execute(command: UpdateTodoCommand): Promise<void> {
-    const todo = await this.todoRepository.findById(command.id);
+    const todo = await this.loadAggregate(command.id);
 
-    todo.update({
-      content: command.content,
-    });
+    todo.update({ content: command.content });
 
-    await this.todoRepository.save(todo);
+    await this.commit(todo);
+  }
 
-    this.eventBus.publish(new TodoUpdatedEvent(todo.id, todo.content));
+  private async loadAggregate(id: string): Promise<Todo> {
+    const events = await this.eventStore.loadEvents(id);
+    if (events.length === 0)
+      throw new NotFoundException(`Todo with ID ${id} not found.`);
+
+    const todoEvents = events.map(TodoEventFactory.fromRaw);
+
+    return Todo.rebuildFrom(todoEvents);
+  }
+
+  private async commit(aggregate: Todo): Promise<void> {
+    const newEvents = aggregate.pullEvents();
+    await this.eventStore.appendEvents(
+      aggregate.id,
+      newEvents,
+      aggregate.getVersion() - newEvents.length,
+    );
+    for (const event of newEvents) {
+      this.eventBus.publish(event);
+    }
   }
 }

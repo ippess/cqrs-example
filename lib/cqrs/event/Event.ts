@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 
 export type EventMeta = {
+  type?: string;
   eventId?: string;
   occurredAt?: Date;
   aggregateId?: string;
@@ -11,6 +12,7 @@ export type EventMeta = {
 };
 
 export abstract class Event {
+  readonly type: string;
   readonly eventId: string;
   readonly occurredAt: Date;
   readonly aggregateId?: string;
@@ -20,6 +22,7 @@ export abstract class Event {
   readonly source?: string;
 
   constructor(meta: EventMeta = {}) {
+    this.type = meta.type;
     this.eventId = meta.eventId ?? uuidv4();
     this.occurredAt = meta.occurredAt ?? new Date();
     this.aggregateId = meta.aggregateId;

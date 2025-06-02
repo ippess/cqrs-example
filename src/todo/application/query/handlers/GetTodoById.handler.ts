@@ -1,17 +1,22 @@
 import { QueryHandler } from 'lib/cqrs/query/QueryHandler.decorator';
 import { QueryHandler as IQueryHandler } from 'lib/cqrs/query/Query.handler';
-import { TodoRepository } from 'src/todo/application/ports/Todo.repository';
 import { GetTodoByIdQuery } from 'src/todo/application/query/impl/GetTodoById.query';
 import { Injectable } from '@nestjs/common';
+import { Todo } from 'src/todo/domain/Todo';
+import { EventStore } from 'lib/event-sroucing/application/port/EventStore';
+import { TodoEventFactory } from 'src/todo/application/events/EventFactory';
 
 @Injectable()
 @QueryHandler(GetTodoByIdQuery)
 export class GetTodoByIdHandler
   implements IQueryHandler<GetTodoByIdQuery, any>
 {
-  constructor(private readonly todoRepo: TodoRepository) {}
+  constructor(private readonly eventStore: EventStore) {}
 
   async execute(query: GetTodoByIdQuery) {
-    return await this.todoRepo.findById(query.id);
+    const events = await this.eventStore.loadEvents(query.id);
+    const todoEvents = events.map(TodoEventFactory.fromRaw);
+
+    return Todo.rebuildFrom(todoEvents);
   }
 }
